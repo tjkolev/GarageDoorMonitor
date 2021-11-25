@@ -3,7 +3,7 @@
 
 #include <sensitive.h>
 
-#define GDOOR_MONITOR_VERSION   "21.11.22.1"
+#define GDOOR_MONITOR_VERSION   __DATE__ " " __TIME__
 
 #define DOOR_UNKNOWN (-1)
 #define DOOR_OPEN 0
@@ -18,22 +18,25 @@
 #define IOT_EVENT_RESET 4
 #define IOT_EVENT_CLOSING_FAILURE 5
 #define IOT_EVENT_CLOSED_DOOR 6
+#define IOT_EVENT_CONFIG_ERROR 7
+#define IOT_EVENT_CONTROL_DISABLED 8
 
 #define IOT_API_BASE_URL "http://" IOT_SERVICE_FQDN "/cgi-bin/luci/iot-helper/api"
 
 struct ApplicationConfig {
+  bool EnableControl = true;
   unsigned long MainLoopMs = 5 * 1000; // 5 seconds.
   unsigned long UpdateConfigMs = 60 * 1000; // 1 minute. Also keeps the clock.
   int MaxClosingTries = 2;
   unsigned long DoorClosingTimeMs = 20 * 1000; // 20 seconds for the door to close
   unsigned long TimeBetweenClosingAttemptsMs = 15 * 60 * 1000; // 15 minutes
-  int MaxClosingAttempts = 4;
   unsigned long DoorClosingSwitchPressMs = 500;
   unsigned long MaxDoorOpenMs = 6 * 60 * 60 * 1000; // 6 hours max for door to stay open
   unsigned long MinDoorOpenMs = 5 * 60 * 1000;      // 5 minutes at least to stay open, so it doesn't go closing right away
   unsigned long MinNotifyPeriodMs = 5 * 60 * 1000;  // 5 minutes
   int DebounceReadCount = 5;
   int DebounceReadPauseMs = 500;
+  bool DebugLog = false;
 
   int KeepClosedFromTo[2] = { 2200, 500 };
 
@@ -42,18 +45,22 @@ struct ApplicationConfig {
     { 300, 700 },   // closed switch on
     { 0, 100 }       // ajar, no switch set
   };
+
+  // evaluated values
+  char txtMinOpenTime[24];
+  char txtMaxOpenTime[24];
 };
 
 extern ApplicationConfig AppConfig;
 
-#define TXT_BUFF_LEN 400
-extern char textBuffer[TXT_BUFF_LEN];
-void log(const char* format, ...);
+const char* log(const char* format, ...);
+#define logd(...) {if(AppConfig.DebugLog) log(__VA_ARGS__);};
+char* formatMillis(char* buff, unsigned long milliseconds);
 
 bool ensureWiFi();
 bool wifiConnected();
-bool updateConfig();
+void updateConfig(bool force = false);
 void closingDoorAlarm();
-bool sendNotification(int eventId, char* msg = NULL, int msgLen = 0);
+bool sendNotification(int eventId, const char* msg = NULL, int msgLen = 0);
 
 #endif // main_h

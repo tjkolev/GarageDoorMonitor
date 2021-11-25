@@ -3,21 +3,50 @@
 #include <main.h>
 #include <pins.h>
 
-#define MSG_BUFF_LEN 200
-char msg[MSG_BUFF_LEN];
+char* formatMillis(char* buff, unsigned long milliseconds) {
+  // returns the millisconds formatted as d.hh:mm:ss.lll
+  unsigned long tmillis = milliseconds;
+  int msecs = (int) (tmillis % 1000);
 
-char textBuffer[TXT_BUFF_LEN];
-void log(const char* format, ...)
+  unsigned long tsecs;
+  int secs = (int)((tsecs = tmillis / 1000) % 60);
+
+  unsigned long tmins;
+  int mins = (int)((tmins = tsecs / 60) % 60);
+
+  unsigned long thours;
+  int hours = (int)((thours = tmins / 60) % 24);
+
+  int days = (int)(thours / 24);
+
+  sprintf(buff, "%d.%02d:%02d:%02d.%03d", days, hours, mins, secs, msecs);
+  return buff;
+}
+
+#define LOG_BUFF_LEN 600
+char logMsgBuffer[LOG_BUFF_LEN];
+char millisFmtBuffer[24];
+const char* log(const char* format, ...)
 {
   va_list args;
   va_start(args, format);
 
-  snprintf(textBuffer, TXT_BUFF_LEN, "%lu ", millis());
-  size_t txtLen = strlen(textBuffer);
-  vsnprintf(textBuffer + txtLen, TXT_BUFF_LEN - txtLen, format, args);
+  size_t txtLen;
+  if(timeSet == timeStatus()) {
+    time_t t = now();
+    txtLen = snprintf(logMsgBuffer, LOG_BUFF_LEN, "%4d-%02d-%02d %02d:%02d:%02d ", year(t), month(t), day(t), hour(t), minute(t), second(t));
+  }
+  else {
+    txtLen = snprintf(logMsgBuffer, LOG_BUFF_LEN, "%s ", formatMillis(millisFmtBuffer, millis()));
+  }
+
+  //size_t txtLen = strlen(textBuffer);
+  vsnprintf(logMsgBuffer + txtLen, LOG_BUFF_LEN - txtLen, format, args);
 
   va_end(args);
-  Serial.println(textBuffer);
+  Serial.println(logMsgBuffer);
+
+  return logMsgBuffer;
 }
 
 const char* doorStateNames[] = {
@@ -34,13 +63,12 @@ const char* getNamedDoorState(int doorState) {
 }
 
 int getDoorState() {
-  int doorDebounceStates[AppConfig.DebounceReadCount] = { DOOR_UNKNOWN };
-  log("Debounce array: %d %d %d", doorDebounceStates[1], doorDebounceStates[2], doorDebounceStates[4]);
+  int doorDebounceStates[AppConfig.DebounceReadCount] = { DOOR_UNKNOWN, DOOR_UNKNOWN, DOOR_UNKNOWN, DOOR_UNKNOWN, DOOR_UNKNOWN };
 
   while(true) { // need to get a definitive answer
 
     int rawVal = analogRead(POSITION_PIN);
-    log("Position pin (%d) value: %d", POSITION_PIN, rawVal);
+    logd("Position pin (%d) value: %d", POSITION_PIN, rawVal);
 
     int doorState = DOOR_UNKNOWN;
     for(int ndx = 0; ndx < DOOR_STATE_COUNT; ndx++) {
@@ -54,10 +82,8 @@ int getDoorState() {
     bool debounced = false;
 
     if(doorState == DOOR_UNKNOWN) {
-      log("No sensor range match for: %d", rawVal);
-      // Notify
-      int msgLen = snprintf((char*)msg, MSG_BUFF_LEN, "Sensor value %d falls in no valid range.", rawVal);
-      sendNotification(IOT_EVENT_BAD_DATA, msg, msgLen);
+      const char* logmsg = log("Sensor value %d falls in no valid range.", rawVal);
+      sendNotification(IOT_EVENT_BAD_DATA, logmsg, -1);
     }
     else {
       // shift values left
@@ -66,6 +92,7 @@ int getDoorState() {
       }
       doorDebounceStates[AppConfig.DebounceReadCount - 1] = doorState;
       // check for same consecutive values
+      logd("Debounce array:[%d %d %d %d %d]", doorDebounceStates[0], doorDebounceStates[1], doorDebounceStates[2], doorDebounceStates[3], doorDebounceStates[4]);
       debounced = true;
       for(int n = 0; n < AppConfig.DebounceReadCount - 1; n++) {
         if(doorDebounceStates[n] != doorState) {
@@ -87,24 +114,24 @@ bool doorShouldBeClosed(unsigned long openSinceMs) {
 
   if(openSinceMs != 0) {
     unsigned long doorOpenedForMs = millis() - openSinceMs;
+    char buff[24];
 
+    logd("Door opened for %s. Min open time: %s. Max open time: %s", formatMillis(buff, doorOpenedForMs), AppConfig.txtMinOpenTime, AppConfig.txtMaxOpenTime);
     // if configured *don't close* the door if not opened min amount of time
     if(AppConfig.MinDoorOpenMs > 0 && doorOpenedForMs < AppConfig.MinDoorOpenMs) {
-      log("Door is staying open. Min open time: %d, opened for: %d", AppConfig.MinDoorOpenMs, doorOpenedForMs);
       return false;
     }
 
     // if configured *close* the door if opened more than the max amount of time
     if(AppConfig.MaxDoorOpenMs > 0 && doorOpenedForMs > AppConfig.MaxDoorOpenMs) {
-      log("Door should close. Max open time: %d, opened for: %d", AppConfig.MaxDoorOpenMs, doorOpenedForMs);
       return true;
     }
   }
 
   // check time of day
   if(timeSet != timeStatus()) {
-    log("Door is staying open. Unreliable time.");
-    sendNotification(IOT_EVENT_BAD_TIME);
+    const char* logmsg = log("Door is staying open. Unreliable time.");
+    sendNotification(IOT_EVENT_BAD_TIME, logmsg, -1);
     return false; // conservative choice
   }
 
@@ -140,11 +167,12 @@ bool closeDoor() {
   for(int attempt = 1; attempt <= AppConfig.MaxClosingTries; attempt++) {
     log("Door close try: %d.", attempt);
     int doorState = getDoorState();
-    if(DOOR_OPEN == doorState) {
+    if(DOOR_CLOSED != doorState) {
       activateDoor();
     }
     // give it time to close, and check
     // if door hasn't closed, activating again will open the door.
+    logd("Waiting %d ms for door to move to closed position.", AppConfig.DoorClosingTimeMs);
     delay(AppConfig.DoorClosingTimeMs);
     doorState = getDoorState();
     if(DOOR_CLOSED == doorState) {
@@ -162,6 +190,7 @@ unsigned long lastCloseAttemptMs = 0;
 
 void checkDoor() {
   int doorState = getDoorState();
+  logd("Door state: %d", doorState);
 
   if(DOOR_CLOSED == doorState) {
     if(lastCloseAttemptMs != 0) {
@@ -193,6 +222,14 @@ void checkDoor() {
     return;
   }
 
+  if(!AppConfig.EnableControl) {
+    log("Door control is disabled.");
+    char buff[24];
+    const char* logmsg = log("Door has been opened for %s", formatMillis(buff, (millis() - doorOpenedSinceMs)));
+    sendNotification(IOT_EVENT_CONTROL_DISABLED, logmsg, -1);
+    return;
+  }
+
   bool doorClosed = closeDoor();
   if(doorClosed) {
     lastCloseAttemptMs = 0;
@@ -206,10 +243,10 @@ void checkDoor() {
     lastCloseAttemptMs = 1; // don't want to mess up the 'flag' overload.
 
   // notify
-  int msgLen = snprintf(msg, MSG_BUFF_LEN, "Door state: %s. Next attempt in %d minutes.",
+  const char* logmsg = log("Door state: %s. Next attempt in %d minutes.",
                     getNamedDoorState(doorState),
                     (int) AppConfig.TimeBetweenClosingAttemptsMs / 1000 / 60);
-  sendNotification(IOT_EVENT_CLOSING_FAILURE, msg, msgLen);
+  sendNotification(IOT_EVENT_CLOSING_FAILURE, logmsg, -1);
 }
 
 void setupIO() {
@@ -235,7 +272,7 @@ void setup() {
   setupIO();
   ensureWiFi();
 
-  updateConfig();
+  updateConfig(true);
 
   log("Ready. Version: " GDOOR_MONITOR_VERSION);
 }
@@ -256,11 +293,7 @@ void loop() {
     updateConfig();
     checkDoor();
 
-    lastLoopRun = now;
-  }
-
-  // Blink red/blue LED based on WiFi state
-  if(now % 2000 == 0) { // Every two seconds
+    // Blink red/blue LED based on WiFi state
     int ledPin;
     if(wifiConnected()) {
       digitalWrite(LED_RED_PIN, 1); // off
@@ -272,6 +305,8 @@ void loop() {
     }
     digitalWrite(ledPin, flipLedOnOff ? 0 : 1);
     flipLedOnOff = !flipLedOnOff;
+
+    lastLoopRun = now;
   }
 
   yield();

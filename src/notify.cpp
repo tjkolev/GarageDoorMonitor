@@ -29,7 +29,7 @@ size_t SerializeMessageBody(const NotifyMessage& msgBody, char* json, size_t max
     return jsonDoc.printTo(json, maxSize);
 }
 
-NotifyMessage& createEventMessage(int eventId, char* msg = NULL, int msgLen = 0) {
+NotifyMessage& createEventMessage(int eventId, const char* msg = NULL, int msgLen = 0) {
 
   strcpy(EventMessage.Type, EVENT_TYPE_INFO);
 
@@ -60,6 +60,14 @@ NotifyMessage& createEventMessage(int eventId, char* msg = NULL, int msgLen = 0)
       strcpy(EventMessage.Subject, "Garage door monitor reset");
       strcpy(EventMessage.Message, "The garage door monitor has been reset. This could be due to power cycle, or code crash.\n");
       break;
+    case IOT_EVENT_CONFIG_ERROR:
+      strcpy(EventMessage.Subject, "Failure parsing configuration");
+      strcpy(EventMessage.Message, "Failed to parse the configuration data retrieved from the server.\n");
+      break;
+    case IOT_EVENT_CONTROL_DISABLED:
+      strcpy(EventMessage.Subject, "Door control is disabled");
+      strcpy(EventMessage.Message, "Door would have closed by now, but control has been disabled.\n");
+      break;
 
     default:
       strcpy(EventMessage.Subject, "Unknown event");
@@ -68,6 +76,9 @@ NotifyMessage& createEventMessage(int eventId, char* msg = NULL, int msgLen = 0)
       break;
   }
 
+  if(msgLen == -1) {
+    msgLen = strlen(msg);
+  }
   if(msgLen > 0) {
     strncat(EventMessage.Message, msg, msgLen);
   }
@@ -82,7 +93,7 @@ int lastNotifiedEventId = IOT_EVENT_NONE;
 
 char jsonText[JSON_BUFFER_SIZE];
 
-bool sendNotification(int eventId, char* msg, int msgLen) {
+bool sendNotification(int eventId, const char* msg, int msgLen) {
 
   unsigned long now = millis();
   if((eventId == lastNotifiedEventId) && (now - lastNotifyTime < AppConfig.MinNotifyPeriodMs)) {

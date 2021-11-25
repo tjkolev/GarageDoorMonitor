@@ -9,93 +9,119 @@ extern WiFiClient wifiClient;
 
 ApplicationConfig AppConfig;
 
-#define CONFIG_URL    IOT_API_BASE_URL "/config?deviceid=sump"
+#define CONFIG_URL    IOT_API_BASE_URL "/config?deviceid=gdoor"
 
 template <typename T>
-bool updateValue(T newValue, T &currentValue, int multiplier = 1000) {
-  if (newValue) {
-    T cfgValue = newValue * multiplier;
-    if(cfgValue != currentValue) {
-      currentValue = cfgValue;
-      return true;
-    }
+void updateValue(const JsonObject &jconfig, const char* key, T &currentValue, int multiplier) {
+  if (jconfig.containsKey(key)) {
+    currentValue = jconfig[key].as<T>() * multiplier;
   }
-  return false;
 }
 
-bool parseConfig(const char* json) {
+template <typename T>
+void updateValue(const JsonObject &jconfig, const char* key, T &currentValue) {
+  if (jconfig.containsKey(key)) {
+    currentValue = jconfig[key].as<T>();
+  }
+}
+
+template <typename T>
+void checkAndSwapValues(T& valMin, T& valMax, const char* nameMin, const char* nameMax) {
+  if(valMax < valMin) {
+    const char* logmsg = log("%s value %lu is less than %s %lu. Values will be swapped", nameMax, valMax, nameMin, valMin);
+
+    T t = valMax;
+    valMax = valMin;
+    valMin = t;
+    sendNotification(IOT_EVENT_CONFIG_ERROR, logmsg, -1);
+  }
+}
+
+void parseConfig(const char* json) {
   StaticJsonBuffer<1024> jsonBuffer;
-  JsonObject& config = jsonBuffer.parseObject(json);
+  const JsonObject& config = jsonBuffer.parseObject(json);
   if (!config.success()) {
-    log("Failed to parse json:\n%s", json);
-    return false;
+    const char* logmsg = log("Failed to parse json:\n%s", json);
+    sendNotification(IOT_EVENT_CONFIG_ERROR, logmsg, -1);
+    return;
   }
 
-  bool updated = updateValue(config["MainLoopSec"].as<unsigned long>(), AppConfig.MainLoopMs);
-  updated |= updateValue(config["UpdateConfigSec"].as<unsigned long>(), AppConfig.UpdateConfigMs);
-  updated |= updateValue(config["MaxClosingTries"].as<int>(), AppConfig.MaxClosingTries, 1);
-  updated |= updateValue(config["DoorClosingTimeSec"].as<unsigned long>(), AppConfig.DoorClosingTimeMs);
-  updated |= updateValue(config["TimeBetweenClosingAttemptsMin"].as<unsigned long>(), AppConfig.TimeBetweenClosingAttemptsMs, 60 * 1000);
-  updated |= updateValue(config["MaxClosingAttempts"].as<int>(), AppConfig.MaxClosingAttempts, 1);
-  updated |= updateValue(config["DoorClosingSwitchPressMs"].as<unsigned long>(), AppConfig.DoorClosingSwitchPressMs, 1);
-  updated |= updateValue(config["MaxDoorOpenMin"].as<unsigned long>(), AppConfig.MaxDoorOpenMs, 60 * 1000);
-  updated |= updateValue(config["MinDoorOpenMin"].as<unsigned long>(), AppConfig.MinDoorOpenMs, 60 * 1000);
-  updated |= updateValue(config["MinNotifyPeriodSec"].as<unsigned long>(), AppConfig.MinNotifyPeriodMs);
+  updateValue(config, "EnableControl", AppConfig.EnableControl);
+  updateValue(config, "MainLoopSec", AppConfig.MainLoopMs, 1000);
+  updateValue(config, "UpdateConfigSec", AppConfig.UpdateConfigMs, 1000);
+  updateValue(config, "MaxClosingTries", AppConfig.MaxClosingTries);
+  updateValue(config, "DoorClosingTimeSec", AppConfig.DoorClosingTimeMs, 1000);
+  updateValue(config, "TimeBetweenClosingAttemptsMin", AppConfig.TimeBetweenClosingAttemptsMs, 60 * 1000);
+  updateValue(config, "DoorClosingSwitchPressMs", AppConfig.DoorClosingSwitchPressMs);
+  updateValue(config, "MaxDoorOpenMin", AppConfig.MaxDoorOpenMs, 60 * 1000);
+  updateValue(config, "MinDoorOpenMin", AppConfig.MinDoorOpenMs, 60 * 1000);
+  updateValue(config, "MinNotifyPeriodSec", AppConfig.MinNotifyPeriodMs, 1000);
+  updateValue(config, "DebounceReadCount", AppConfig.DebounceReadCount);
+  updateValue(config, "DebounceReadPauseMs", AppConfig.DebounceReadPauseMs);
+  updateValue(config, "DebugLog", AppConfig.DebugLog);
+
+  checkAndSwapValues(AppConfig.MinDoorOpenMs, AppConfig.MaxDoorOpenMs, "MinDoorOpenMs", "MaxDoorOpenMs");
 
   if (config.containsKey("KeepClosedFromTo")) {
-    updated |= updateValue(config["KeepClosedFromTo"].as<int>(), AppConfig.KeepClosedFromTo[0], 1);
-    updated |= updateValue(config["KeepClosedFromTo"].as<int>(), AppConfig.KeepClosedFromTo[1], 1);
+    JsonArray &ja = config["KeepClosedFromTo"].as<JsonArray>();
+    AppConfig.KeepClosedFromTo[0] = ja[0].as<int>();
+    AppConfig.KeepClosedFromTo[1] = ja[1].as<int>();
   }
 
   if (config.containsKey("PinRangeDoorOpen")) {
-    updated |= updateValue(config["PinRangeDoorOpen"].as<int>(), AppConfig.SensorRangeValues[DOOR_OPEN][0], 1);
-    updated |= updateValue(config["PinRangeDoorOpen"].as<int>(), AppConfig.SensorRangeValues[DOOR_OPEN][1], 1);
+    JsonArray &ja = config["PinRangeDoorOpen"].as<JsonArray>();
+    AppConfig.SensorRangeValues[DOOR_OPEN][0] = ja[0].as<int>();
+    AppConfig.SensorRangeValues[DOOR_OPEN][1] = ja[1].as<int>();
   }
+  checkAndSwapValues(AppConfig.SensorRangeValues[DOOR_OPEN][0], AppConfig.SensorRangeValues[DOOR_OPEN][1], "PinRangeDoorOpen-from", "PinRangeDoorOpen-to");
+
   if (config.containsKey("PinRangeDoorClosed")) {
-    updated |= updateValue(config["PinRangeDoorClosed"].as<int>(), AppConfig.SensorRangeValues[DOOR_CLOSED][0], 1);
-    updated |= updateValue(config["PinRangeDoorClosed"].as<int>(), AppConfig.SensorRangeValues[DOOR_CLOSED][1], 1);
+    JsonArray &ja = config["PinRangeDoorClosed"].as<JsonArray>();
+    AppConfig.SensorRangeValues[DOOR_CLOSED][0] = ja[0].as<int>();
+    AppConfig.SensorRangeValues[DOOR_CLOSED][1] = ja[1].as<int>();
   }
+  checkAndSwapValues(AppConfig.SensorRangeValues[DOOR_CLOSED][0], AppConfig.SensorRangeValues[DOOR_CLOSED][1], "PinRangeDoorClosed-from", "PinRangeDoorClosed-to");
+
   if (config.containsKey("PinRangeDoorAjar")) {
-    updated |= updateValue(config["PinRangeDoorAjar"].as<int>(), AppConfig.SensorRangeValues[DOOR_AJAR][0], 1);
-    updated |= updateValue(config["PinRangeDoorAjar"].as<int>(), AppConfig.SensorRangeValues[DOOR_AJAR][1], 1);
+    JsonArray &ja = config["PinRangeDoorAjar"].as<JsonArray>();
+    AppConfig.SensorRangeValues[DOOR_AJAR][0] = ja[0].as<int>();
+    AppConfig.SensorRangeValues[DOOR_AJAR][1] = ja[1].as<int>();
   }
+  checkAndSwapValues(AppConfig.SensorRangeValues[DOOR_AJAR][0], AppConfig.SensorRangeValues[DOOR_AJAR][1], "PinRangeDoorAjar-from", "PinRangeDoorAjar-to");
+
+  log("Configuration pulled from %s", CONFIG_URL);
+  log(json);
 
   log("Pin range values.");
   for(int ds = DOOR_OPEN; ds < DOOR_STATE_COUNT; ds++) {
     log("Door state %d: %d - %d", ds, AppConfig.SensorRangeValues[ds][0], AppConfig.SensorRangeValues[ds][1]);
   }
 
-  log("Configuration pulled from %s - %s", CONFIG_URL, (updated ? "updated:": "no changes."));
-  if(updated) {
-    log(json);
-  }
-
-  return updated;
+  formatMillis(AppConfig.txtMinOpenTime, AppConfig.MinDoorOpenMs);
+  formatMillis(AppConfig.txtMaxOpenTime, AppConfig.MaxDoorOpenMs);
 }
 
 const char* respHeaders[] = { "X-IoT-LocalTime" };
 
 void SetTime() {
   String timeTxt = httpClient.header(respHeaders[0]);
-  Serial.println(timeTxt);
   int year, month, date, hour, minute, second;
   sscanf(timeTxt.c_str(), "%4d%02d%02d%02d%02d%02d", &year, &month, &date, &hour, &minute, &second);
-  //Serial.println(year);Serial.println(month);Serial.println(date);Serial.println(hour);Serial.println(minute);Serial.println(second);
   setTime(hour, minute, second, date, month, year);
   if(timeSet != timeStatus()) {
-    Serial.println("Failed to set time from config.");
+    const char* logmsg = log("Failed to set time from header.");
+    sendNotification(IOT_EVENT_CONFIG_ERROR, logmsg, -1);
   }
 }
 
 unsigned long lastConfigUpdate = 0;
-bool updateConfig() {
+void updateConfig(bool force) {
   unsigned long now = millis();
-  if(now - lastConfigUpdate < AppConfig.UpdateConfigMs) {
-    return false;
+  if(!force && (now - lastConfigUpdate < AppConfig.UpdateConfigMs)) {
+    return;
   }
   lastConfigUpdate = now;
 
-  bool result = false;
   if(ensureWiFi()) {
     httpClient.setTimeout(10000);
     httpClient.begin(wifiClient, CONFIG_URL);
@@ -104,7 +130,7 @@ bool updateConfig() {
     if(code == 200) {
       SetTime();
       String body = httpClient.getString();
-      result = parseConfig(body.c_str());
+      parseConfig(body.c_str());
     }
     else {
       log("Cannot pull config. Http code %d", code);
@@ -115,5 +141,4 @@ bool updateConfig() {
    log("Cannot pull config: no wifi.");
   }
 
-  return result;
 }
