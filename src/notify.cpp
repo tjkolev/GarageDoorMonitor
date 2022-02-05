@@ -92,6 +92,7 @@ int lastNotifiedEventId = IOT_EVENT_NONE;
 #define JSON_BUFFER_SIZE    1024
 
 char jsonText[JSON_BUFFER_SIZE];
+char msgBuffer[MSG_MESSAGE_LEN];
 
 bool sendNotification(int eventId, const char* msg, int msgLen) {
 
@@ -102,12 +103,22 @@ bool sendNotification(int eventId, const char* msg, int msgLen) {
   lastNotifyTime = now;
   lastNotifiedEventId = eventId;
 
+  if(NULL != msg) {
+    // make a copy of the msg, as it could be the log buffer, and log() will mess it up.
+    strncpy(msgBuffer, msg, MSG_MESSAGE_LEN);
+    msgBuffer[MSG_MESSAGE_LEN-1] = '\0';
+  }
+  else {
+    msgBuffer[0] = '\0';
+    msgLen = 0;
+  }
+
   if(!ensureWiFi()) {
     log("Cannot notify: no wifi.");
     return false;
   }
 
-  NotifyMessage& msgToSend = createEventMessage(eventId, msg, msgLen);
+  NotifyMessage& msgToSend = createEventMessage(eventId, msgBuffer, msgLen);
   size_t jsonSize = SerializeMessageBody(msgToSend, jsonText, JSON_BUFFER_SIZE);
 
   bool result = false;
@@ -115,14 +126,43 @@ bool sendNotification(int eventId, const char* msg, int msgLen) {
   httpClient.begin(wifiClient, NOTIFY_URL);
   httpClient.setTimeout(10000);
   int code = httpClient.POST((const uint8_t*)jsonText, jsonSize);
+  httpClient.end();
+
   if(code == 200){
-    log("Notification sent.\n%s", jsonText);
+    logd("Notification sent.\n%s", jsonText);
     result = true;
   }
   else {
     log("Failed to send notification, http code %d\n%s", code, jsonText);
   }
-  httpClient.end();
 
   return result;
+}
+
+#define LOG_URL    IOT_API_BASE_URL "/log?deviceid=" DEVICE_ID
+void postLog(const char* logMsg) {
+
+  // NOTE: do not call any functions that call log() themselves!
+  if(!AppConfig.PostLog) {
+    return;
+  }
+
+  if(!wifiConnected()) {
+    // can't use log() calls here
+    Serial.println("Cannot post log: no wifi.");
+    return;
+  }
+
+  httpClient.begin(wifiClient, LOG_URL);
+  httpClient.setTimeout(500);
+  int code = httpClient.POST((const uint8_t*)logMsg, strlen(logMsg));
+  httpClient.end();
+  if(code != 200){
+    Serial.printf("Posting log message failed: %s\n", jsonText);
+  }
+  else {
+    if(AppConfig.DebugLog) {
+      Serial.printf("Posted message to %s\n", LOG_URL);
+    }
+  }
 }

@@ -9,7 +9,7 @@ extern WiFiClient wifiClient;
 
 ApplicationConfig AppConfig;
 
-#define CONFIG_URL    IOT_API_BASE_URL "/config?deviceid=gdoor"
+#define CONFIG_URL    IOT_API_BASE_URL "/config?deviceid=" DEVICE_ID
 
 template <typename T>
 void updateValue(const JsonObject &jconfig, const char* key, T &currentValue, int multiplier) {
@@ -59,6 +59,7 @@ void parseConfig(const char* json) {
   updateValue(config, "DebounceReadCount", AppConfig.DebounceReadCount);
   updateValue(config, "DebounceReadPauseMs", AppConfig.DebounceReadPauseMs);
   updateValue(config, "DebugLog", AppConfig.DebugLog);
+  updateValue(config, "PostLog", AppConfig.PostLog);
 
   checkAndSwapValues(AppConfig.MinDoorOpenMs, AppConfig.MaxDoorOpenMs, "MinDoorOpenMs", "MaxDoorOpenMs");
 
@@ -89,12 +90,12 @@ void parseConfig(const char* json) {
   }
   checkAndSwapValues(AppConfig.SensorRangeValues[DOOR_AJAR][0], AppConfig.SensorRangeValues[DOOR_AJAR][1], "PinRangeDoorAjar-from", "PinRangeDoorAjar-to");
 
-  log("Configuration pulled from %s", CONFIG_URL);
-  log(json);
+  logd("Configuration pulled from %s", CONFIG_URL);
+  logd(json);
 
-  log("Pin range values.");
+  logd("Pin range values.");
   for(int ds = DOOR_OPEN; ds < DOOR_STATE_COUNT; ds++) {
-    log("Door state %d: %d - %d", ds, AppConfig.SensorRangeValues[ds][0], AppConfig.SensorRangeValues[ds][1]);
+    logd("Door state %d: %d - %d", ds, AppConfig.SensorRangeValues[ds][0], AppConfig.SensorRangeValues[ds][1]);
   }
 
   formatMillis(AppConfig.txtMinOpenTime, AppConfig.MinDoorOpenMs);
