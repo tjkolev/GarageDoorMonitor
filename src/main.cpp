@@ -45,6 +45,7 @@ const char* log(const char* format, ...)
 
   va_end(args);
   Serial.println(logMsgBuffer);
+  postLog(logMsgBuffer);
 
   return logMsgBuffer;
 }
@@ -149,7 +150,7 @@ bool doorShouldBeClosed(unsigned long openSinceMs) {
     shouldClose = keepClosedFrom <= hhmm && hhmm <= keepClosedTo;
   }
 
-  log("Door should close: %s. Current time: %d. Configured closed time interval: [%d - %d]", (shouldClose ? "yes" : "no"), hhmm, keepClosedFrom, keepClosedTo);
+  logd("Door should close: %s. Current time: %d. Configured closed time interval: [%d - %d]", (shouldClose ? "yes" : "no"), hhmm, keepClosedFrom, keepClosedTo);
   return shouldClose;
 }
 
@@ -165,7 +166,7 @@ bool closeDoor() {
   // let's try to close the door
   sendNotification(IOT_EVENT_AUTO_CLOSING_DOOR);
   for(int attempt = 1; attempt <= AppConfig.MaxClosingTries; attempt++) {
-    log("Door close try: %d.", attempt);
+    logd("Door close try: %d.", attempt);
     int doorState = getDoorState();
     if(DOOR_CLOSED != doorState) {
       activateDoor();
@@ -218,12 +219,12 @@ void checkDoor() {
   }
 
   if(lastCloseAttemptMs != 0 && millis() - lastCloseAttemptMs < AppConfig.TimeBetweenClosingAttemptsMs) {
-    log("Too soon to try and close door again. ");
+    logd("Too soon to try and close door again. ");
     return;
   }
 
   if(!AppConfig.EnableControl) {
-    log("Door control is disabled.");
+    logd("Door control is disabled.");
     char buff[24];
     const char* logmsg = log("Door has been opened for %s", formatMillis(buff, (millis() - doorOpenedSinceMs)));
     sendNotification(IOT_EVENT_CONTROL_DISABLED, logmsg, -1);
@@ -265,7 +266,7 @@ void setupIO() {
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);		 // Start the Serial communication to send messages to the computer
-  delay(10);
+  delay(100);
 
   log("\nSetting up...");
 

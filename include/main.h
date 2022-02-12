@@ -4,6 +4,7 @@
 #include <sensitive.h>
 
 #define GDOOR_MONITOR_VERSION   __DATE__ " " __TIME__
+#define DEVICE_ID           "gdoor"
 
 #define DOOR_UNKNOWN (-1)
 #define DOOR_OPEN 0
@@ -37,6 +38,7 @@ struct ApplicationConfig {
   int DebounceReadCount = 5;
   int DebounceReadPauseMs = 500;
   bool DebugLog = false;
+  bool PostLog = true;
 
   int KeepClosedFromTo[2] = { 2200, 500 };
 
@@ -62,5 +64,6 @@ bool wifiConnected();
 void updateConfig(bool force = false);
 void closingDoorAlarm();
 bool sendNotification(int eventId, const char* msg = NULL, int msgLen = 0);
+void postLog(const char* logMsg);
 
 #endif // main_h
