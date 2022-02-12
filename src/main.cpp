@@ -3,6 +3,23 @@
 #include <main.h>
 #include <pins.h>
 
+struct SensorOffData {
+  int Count = 0;
+  int MinValue = 1024;
+  int MaxValue = 0;
+
+  void Reset() {
+    Count = 0;
+    MinValue = 1024;
+    MaxValue = 0;
+  }
+};
+
+// Daily collection of out of range sensor values
+#define SENSOR_OFF_UNDER_CLOSED 0
+#define SENSOR_OFF_OVER_CLOSED 1
+SensorOffData SensorOffStat[2];
+
 char* formatMillis(char* buff, unsigned long milliseconds) {
   // returns the millisconds formatted as d.hh:mm:ss.lll
   unsigned long tmillis = milliseconds;
@@ -63,6 +80,46 @@ const char* getNamedDoorState(int doorState) {
   return "Unknown";
 }
 
+#define SEND_SENSOR_OFF_STAT_INTERVAL (24 * 60 * 60 * 1000) // 24 hours
+unsigned long lastSensorOffStatSent = 0;
+void handleOutOfRangeValue(int rawVal) {
+
+  SensorOffData *psd;
+  if(rawVal < AppConfig.SensorRangeValues[DOOR_CLOSED][0]) {
+    // out of range below low value for door closed
+    psd = &SensorOffStat[SENSOR_OFF_UNDER_CLOSED];
+  }
+  else if(rawVal > AppConfig.SensorRangeValues[DOOR_CLOSED][1]) {
+    // out of range above high value for door closed
+    psd = &SensorOffStat[SENSOR_OFF_OVER_CLOSED];
+  }
+  else {
+    // Shouldn't end up here.
+    log("Out of range value %d was neither over of below.", rawVal);
+    return;
+  }
+
+  psd->Count++;
+  if(rawVal < psd->MinValue) {
+    psd->MinValue = rawVal;
+  }
+  if(rawVal > psd->MaxValue) {
+    psd->MaxValue = rawVal;
+  }
+
+  if(millis() - lastSensorOffStatSent > SEND_SENSOR_OFF_STAT_INTERVAL) {
+      //const char* logmsg =
+      log("Out of range sensor values: Over(%d [%d - %d]), Under(%d [%d - %d])."
+          , SensorOffStat[SENSOR_OFF_OVER_CLOSED].Count,  SensorOffStat[SENSOR_OFF_OVER_CLOSED].MinValue,  SensorOffStat[SENSOR_OFF_OVER_CLOSED].MaxValue
+          , SensorOffStat[SENSOR_OFF_UNDER_CLOSED].Count, SensorOffStat[SENSOR_OFF_UNDER_CLOSED].MinValue, SensorOffStat[SENSOR_OFF_UNDER_CLOSED].MaxValue
+        );
+      //sendNotification(IOT_EVENT_BAD_DATA, logmsg, -1);
+
+      SensorOffStat[SENSOR_OFF_OVER_CLOSED].Reset();
+      SensorOffStat[SENSOR_OFF_UNDER_CLOSED].Reset();
+  }
+}
+
 int getDoorState() {
   int doorDebounceStates[AppConfig.DebounceReadCount] = { DOOR_UNKNOWN, DOOR_UNKNOWN, DOOR_UNKNOWN, DOOR_UNKNOWN, DOOR_UNKNOWN };
 
@@ -83,8 +140,7 @@ int getDoorState() {
     bool debounced = false;
 
     if(doorState == DOOR_UNKNOWN) {
-      const char* logmsg = log("Sensor value %d falls in no valid range.", rawVal);
-      sendNotification(IOT_EVENT_BAD_DATA, logmsg, -1);
+      handleOutOfRangeValue(rawVal);
     }
     else {
       // shift values left
