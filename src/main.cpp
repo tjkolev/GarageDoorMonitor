@@ -117,6 +117,8 @@ void handleOutOfRangeValue(int rawVal) {
 
       SensorOffStat[SENSOR_OFF_OVER_CLOSED].Reset();
       SensorOffStat[SENSOR_OFF_UNDER_CLOSED].Reset();
+
+      lastSensorOffStatSent = millis();
   }
 }
 
